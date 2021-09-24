@@ -28,8 +28,10 @@ import {
 } from "reactstrap";
 import './VariantEditor.css';
 import {ModuleData} from "../../../redux/reducers/modules";
+import {getJSON} from "./utils/generateStruct";
 
 interface VariantsProps {
+    variants: VariantData[],
     variant: VariantData,
     getVariants: () => void,
     modules: ModuleData[],
@@ -60,7 +62,7 @@ type Props = VariantsProps & RouteComponentProps<{id: string}> & InjectedAuthRou
 class VariantEditor extends Component<Props, State> {
 
     public static defaultProps: Partial<Props> = {
-        variant: {} as VariantData
+        variant: undefined
     };
 
     public state = {
@@ -84,7 +86,8 @@ class VariantEditor extends Component<Props, State> {
     constructor(props: Props) {
         super(props);
         this.handleChange = this.handleChange.bind(this);
-        this.handleButtonClick = this.handleButtonClick.bind(this);
+        this.handleAddAnotherButtonClick = this.handleAddAnotherButtonClick.bind(this);
+        this.handleAddAnswerButtonClick = this.handleAddAnswerButtonClick.bind(this);
         this.updateVertex = this.updateVertex.bind(this);
         this.updateEdge = this.updateEdge.bind(this);
         this.handleDropdownToggle = this.handleDropdownToggle.bind(this);
@@ -104,19 +107,25 @@ class VariantEditor extends Component<Props, State> {
 
     public componentDidUpdate(prevProps: Props, prevState: State) {
         if (this.props.variant) {
-            if ((prevProps.variant).variantData !== this.props.variant.variantData) {
+            if ((prevProps.variant || {}).variantData !== this.props.variant.variantData) {
                 this.setState({
                     value: this.props.variant.variantData,
                     name: this.props.variant.name
                 })
             }
+            if (prevState.moduleId !== this.props.variant.taskModule.id) {
+                this.setState({
+                    moduleId: this.props.variant.taskModule.id
+                })
+            }
         }
     }
 
-
     public render(): ReactNode {
         return <Container fluid style={{marginTop: "50px"}}>
-            <Row>
+            <Row style={{
+                minWidth: "1500px"
+            }}>
                 <Col sm={{
                     size: 4,
                     offset: 1
@@ -202,7 +211,7 @@ class VariantEditor extends Component<Props, State> {
                     </ButtonDropdown>
                     <p>Введите имя варианта</p>
                     <Input className={"generate"} value={this.state.name} onChange={this.updateName}>Имя</Input>
-                    <Button className={"generate"} onClick={this.saveVariant} disabled={!this.isJSONCorrect() || !this.state.name} outline
+                    <Button className={"generate"} onClick={this.saveVariant} disabled={!this.isJSONCorrect()} outline
                             color="secondary">Сохранить</Button>
                 </Col>
                 <Col sm={{size: 2,
@@ -239,11 +248,15 @@ class VariantEditor extends Component<Props, State> {
                         <p>{this.state.labels.label2}</p>
                         <Input className={"generate"} type={"number"} defaultValue="6" onChange={this.updateEdge}>Количество
                             ребер</Input>
-                        <Button className={"generate"} onClick={this.handleButtonClick} outline
+                        <Button className={"generate"} onClick={this.handleAddButtonClick} disabled={isNaN(this.state.vertexAmount) || isNaN(this.state.edgesAmount)} outline
                                 color="secondary">{this.state.labels.structButton}</Button>
-                        <Button className={"generate"} disabled={!this.isJSONCorrect()}
-                            onClick={this.handleAddButtonClick} outline color="secondary">
+                        <Button className={"generate"} disabled={!this.isJSONCorrect() || isNaN(this.state.vertexAmount) || isNaN(this.state.edgesAmount)}
+                            onClick={this.handleAddAnotherButtonClick} outline color="secondary">
                             Добавить еще одну структуру
+                        </Button>
+                        <Button className={"generate"} disabled={!this.isJSONCorrect() || isNaN(this.state.vertexAmount) || isNaN(this.state.edgesAmount)}
+                                onClick={this.handleAddAnswerButtonClick} outline color="secondary">
+                            Добавить структуру в ответ
                         </Button>
                     </div>
                 </Col>
@@ -265,11 +278,27 @@ class VariantEditor extends Component<Props, State> {
      * Сохранение варианта, переход на страницу просмотра вариантов
      */
     private saveVariant() {
-        this.props.saveVariant(this.state.value, this.state.name, this.state.moduleId.toString(), this.props.match.params.id);
-        alert("Вариант \"" + this.state.name + "\" сохранен!")
-        if (!this.props.match.params.id) {
-            this.props.getVariants();
-            this.props.history.push(`/variants`);
+        if (!this.state.name) {
+            alert ("Нельзя указать пустое имя")
+        } else if (!this.isNameUnique()) {
+            alert ("Имя уже занято")
+        } else if (!/^(0|[1-9][0-9]*|true|false)$/.test(JSON.parse(this.state.value).answer)) {
+            alert ("Неправильный формат ответа");
+        } else {
+            let conf = false;
+            if (this.props.match.params.id) {
+                conf = confirm("Это перезапишет старый вариант. Вы уверены?");
+            } else {
+                conf = true;
+            }
+            if (conf) {
+                this.props.saveVariant(this.state.value, this.state.name, this.state.moduleId.toString(), this.props.match.params.id);
+                alert("Вариант \"" + this.state.name + "\" сохранен!")
+                if (!this.props.match.params.id) {
+                    this.props.getVariants();
+                    this.props.history.push(`/variants`);
+                }
+            }
         }
     }
 
@@ -315,8 +344,123 @@ class VariantEditor extends Component<Props, State> {
         })
     }
 
-    private handleAddButtonClick() {
-        this.handleChange(this.state.value.replace(/]$/, `,\n${this.getJSON(this.state.structToGenerate, this.state.vertexAmount, this.state.edgesAmount)}]`))
+    private handleAddAnswerButtonClick() {
+        switch (this.state.structToGenerate) {
+            case "graphV": {
+                if (this.state.edgesAmount <= this.state.vertexAmount*(this.state.vertexAmount - 1)/2)
+                {
+                    try {
+                        this.handleChange(getJSON(this.state.value, this.state.structToGenerate, this.state.vertexAmount, this.state.edgesAmount, true));
+                    } catch (e) {
+                        alert(e.message);
+                    }
+                }
+                else {
+                    alert("Указано слишком большое количество ребер! Число ребер не должно превышать " + this.state.vertexAmount * (this.state.vertexAmount - 1) / 2)
+                }
+                break;
+            }
+            case "graphVE": {
+                if (this.state.edgesAmount <= this.state.vertexAmount*(this.state.vertexAmount - 1)/2)
+                {
+                    try {
+                        this.handleChange(getJSON(this.state.value, this.state.structToGenerate, this.state.vertexAmount, this.state.edgesAmount, true));
+                    } catch (e) {
+                        alert(e.message);
+                    }
+                }
+                else {
+                    alert("Указано слишком большое количество ребер! Число ребер не должно превышать " + this.state.vertexAmount * (this.state.vertexAmount - 1) / 2)
+                }
+                break;
+            }
+            case "matrix": {
+                if (this.state.vertexAmount === this.state.edgesAmount) {
+                    if (confirm("Хотите сгенерировать симметричную матрицу?")) {
+                        try {
+                            this.handleChange(getJSON(this.state.value, "symMatrix", this.state.vertexAmount, this.state.edgesAmount, true));
+                        } catch (e) {
+                            alert(e.message);
+                        }
+                    }
+                    else {
+                        try {
+                            this.handleChange(getJSON(this.state.value, this.state.structToGenerate, this.state.vertexAmount, this.state.edgesAmount, true));
+                        } catch (e) {
+                            alert(e.message);
+                        }
+                    }
+                }
+                else {
+                    try {
+                        this.handleChange(getJSON(this.state.value, this.state.structToGenerate, this.state.vertexAmount, this.state.edgesAmount, true));
+                    } catch (e) {
+                        alert(e.message);
+                    }
+                }
+                break;
+            }
+        }
+    }
+
+
+    private handleAddAnotherButtonClick() {
+        switch (this.state.structToGenerate) {
+            case "graphV": {
+                if (this.state.edgesAmount <= this.state.vertexAmount*(this.state.vertexAmount - 1)/2)
+                {
+                    try {
+                        this.handleChange(getJSON(this.state.value, this.state.structToGenerate, this.state.vertexAmount, this.state.edgesAmount, false));
+                    } catch (e) {
+                        alert(e.message);
+                    }
+                }
+                else {
+                    alert("Указано слишком большое количество ребер! Число ребер не должно превышать " + this.state.vertexAmount * (this.state.vertexAmount - 1) / 2)
+                }
+                break;
+            }
+            case "graphVE": {
+                if (this.state.edgesAmount <= this.state.vertexAmount*(this.state.vertexAmount - 1)/2)
+                {
+                    try {
+                        this.handleChange(getJSON(this.state.value, this.state.structToGenerate, this.state.vertexAmount, this.state.edgesAmount, false));
+                    } catch (e) {
+                        alert(e.message);
+                    }
+                }
+                else {
+                    alert("Указано слишком большое количество ребер! Число ребер не должно превышать " + this.state.vertexAmount * (this.state.vertexAmount - 1) / 2)
+                }
+                break;
+            }
+            case "matrix": {
+                if (this.state.vertexAmount === this.state.edgesAmount) {
+                    if (confirm("Хотите сгенерировать симметричную матрицу?")) {
+                        try {
+                            this.handleChange(getJSON(this.state.value, "symMatrix", this.state.vertexAmount, this.state.edgesAmount, false));
+                        } catch (e) {
+                            alert(e.message);
+                        }
+                    }
+                    else {
+                        try {
+                            this.handleChange(getJSON(this.state.value, this.state.structToGenerate, this.state.vertexAmount, this.state.edgesAmount, false));
+                        } catch (e) {
+                            alert(e.message);
+                        }
+                    }
+                }
+                else {
+                    try {
+                        this.handleChange(getJSON(this.state.value, this.state.structToGenerate, this.state.vertexAmount, this.state.edgesAmount, false));
+                    } catch (e) {
+                        alert(e.message);
+                    }
+                }
+                break;
+            }
+        }
     }
 
     private handleDropdownToggle() {
@@ -325,61 +469,61 @@ class VariantEditor extends Component<Props, State> {
         })
     }
 
-    private handleButtonClick() {
-        this.handleChange(`[${this.getJSON(this.state.structToGenerate, this.state.vertexAmount, this.state.edgesAmount)}]`);
-    }
-
-    private getJSON(structToGenerate: string, vertexAmount: number, edgesAmount: number) {
-        switch (structToGenerate) {
+    private handleAddButtonClick() {
+        switch (this.state.structToGenerate) {
             case "graphV": {
-                const vertices = Array.from(Array(vertexAmount).keys())
-                    .map(e => `"${e}"`)
-                    .join(",");
-                const edges = Array.from(Array(edgesAmount))
-                    .map(() => `{ "sources": "sourceName" , "target": "targetName" }`)
-                    .join(",\n\t");
-                return `{ "type": "graph", "value": {\n` +
-                    `\t"vertices": [${vertices}], \n` +
-                    `\t"edges": \n` +
-                    `\t[${edges}] \n` +
-                    `   } \n` +
-                    `}`;
+                if (this.state.edgesAmount <= this.state.vertexAmount*(this.state.vertexAmount - 1)/2)
+                {
+                    try {
+                        this.handleChange(getJSON("", this.state.structToGenerate, this.state.vertexAmount, this.state.edgesAmount, false));
+                    } catch (e) {
+                        alert(e.message);
+                    }
+                }
+                else {
+                    alert("Указано слишком большое количество ребер! Число ребер не должно превышать " + this.state.vertexAmount * (this.state.vertexAmount - 1) / 2)
+                }
+                break;
             }
             case "graphVE": {
-                const vertices = Array.from(Array(vertexAmount).keys())
-                    .map(e => `"${e}"`)
-                    .join(",");
-                const edges = Array.from(Array(edgesAmount).keys())
-                    .map(e => `{ "name": "${e}", "sources": "sourceName" , "target": "targetName" }`)
-                    .join(",\n\t");
-                return `{ "type": "graph", "value": {\n` +
-                    `\t"vertices": [${vertices}], \n` +
-                    `\t"edges": \n` +
-                    `\t[${edges}] \n` +
-                    `   } \n` +
-                    `}`;
+                if (this.state.edgesAmount <= this.state.vertexAmount*(this.state.vertexAmount - 1)/2)
+                {
+                    try {
+                        this.handleChange(getJSON("", this.state.structToGenerate, this.state.vertexAmount, this.state.edgesAmount, false));
+                    } catch (e) {
+                        alert(e.message);
+                    }
+                }
+                else {
+                    alert("Указано слишком большое количество ребер! Число ребер не должно превышать " + this.state.vertexAmount * (this.state.vertexAmount - 1) / 2)
+                }
+                break;
             }
             case "matrix": {
-                const rows = Array.from(Array(vertexAmount).keys())
-                    .map(e => `"${e}"`)
-                    .join(",");
-                const cols = Array.from(Array(edgesAmount).keys())
-                    .map(e => `"${e}"`)
-                    .join(",");
-                const line = Array.from(Array(edgesAmount).keys())
-                    .map(e => `"${e}"`)
-                    .join(",");
-                const matrix = Array.from(Array(vertexAmount))
-                    .map(() => `{${line}}`)
-                    .join(",\n\t");
-                return `{ "type": "matrix", "value": {\n` +
-                    `\t"rows": [${rows}], \n` +
-                    `\t"columns": [${cols}], \n` +
-                    `\t"elements":\n\t [${matrix}] \n` +
-                    `}`;
-            }
-            default: {
-                return "Здесь еще ничего нет";
+                if (this.state.vertexAmount === this.state.edgesAmount) {
+                    if (confirm("Хотите сгенерировать симметричную матрицу?")) {
+                        try {
+                            this.handleChange(getJSON("", "symMatrix", this.state.vertexAmount, this.state.edgesAmount, false));
+                        } catch (e) {
+                            alert(e.message);
+                        }
+                    }
+                    else {
+                        try {
+                            this.handleChange(getJSON("", this.state.structToGenerate, this.state.vertexAmount, this.state.edgesAmount, false));
+                        } catch (e) {
+                            alert(e.message);
+                        }
+                    }
+                }
+                else {
+                    try {
+                        this.handleChange(getJSON("", this.state.structToGenerate, this.state.vertexAmount, this.state.edgesAmount, false));
+                    } catch (e) {
+                        alert(e.message);
+                    }
+                }
+                break;
             }
         }
     }
@@ -410,12 +554,21 @@ class VariantEditor extends Component<Props, State> {
             return false;
         }
     }
+
+    private isNameUnique() {
+        const namesInModule = this.props.variants
+            .filter(e => e.taskModule.id === this.state.moduleId)
+            .filter(e => this.props.variant ? e.id !== this.props.variant.id : true)
+            .map(e => e.name);
+        return !namesInModule.some(e => e === this.state.name)
+    }
 }
 
 const mapStateToProps = (state: RootState, props: any) => {
     return {
+        variants: state.variants.data || [],
         variant: (state.variants.data || []).find(e => e.id === parseInt(props.match.params.id, 10)),
-        modules: state.modules.data
+        modules: state.modules.data || []
     };
 };
 

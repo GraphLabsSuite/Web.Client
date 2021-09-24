@@ -19,7 +19,7 @@ class VariantDetailed extends Component<Props> {
         if (!variant) {return null}
         const variantData = variant.variantData;
         return (<>
-            <ListGroupItem tag={'div'} style={{whiteSpace: 'pre', fontSize: '0.8em'}} >
+            <ListGroupItem tag={'div'} style={{whiteSpace: 'pre', fontSize: '1.2em', fontFamily: "monospace"}} >
                 {JSON.stringify(JSON.parse(variantData), null, 2)}
             </ListGroupItem>
             </>)

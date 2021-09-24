@@ -36,14 +36,12 @@ interface VariantsProps {
 type Props = VariantsProps & RouteComponentProps<{}> & InjectedAuthRouterProps
 
 interface State {
-    filter?: number,
     isDropdownOpen: boolean
 }
 
 class Variants extends Component<Props, State> {
 
     public state = {
-        filter: undefined,
         isDropdownOpen: false,
         currentDropdownOption: undefined
     };
@@ -55,16 +53,12 @@ class Variants extends Component<Props, State> {
     }
 
     public componentDidMount(): void {
-        if (this.props.variants.data.length === 0) {
+        if ((new URLSearchParams(this.props.location.search)).get("moduleId")) {
+            this.props.getVariants((new URLSearchParams(this.props.location.search)).get("moduleId") as string);
+        } else {
             this.props.getVariants();
-            this.props.getModules();
         }
-    }
-
-    public componentDidUpdate(oldProps: Props, oldState: State): void {
-        if (oldState.filter !== this.state.filter) {
-            this.props.getVariants(this.state.filter)
-        }
+        this.props.getModules();
     }
 
     public get admin(): boolean {
@@ -102,7 +96,7 @@ class Variants extends Component<Props, State> {
                         <ButtonDropdown isOpen={this.state.isDropdownOpen} toggle={this.handleDropdownToggle}
                                         outline color="secondary" style={{marginRight: "0"}}>
                             <DropdownToggle outline color="secondary" className={"generate"} caret>
-                                {(this.props.modules.find(m => m.id === this.state.filter) || {name: "Все"}).name}
+                                {(this.props.modules.find(m => "" + m.id === (new URLSearchParams(this.props.location.search)).get("moduleId")) || {name: "Все"}).name}
                             </DropdownToggle>
                             <DropdownMenu>
                                 <DropdownItem
@@ -128,7 +122,7 @@ class Variants extends Component<Props, State> {
                                 <>
                                     <ListGroupItem className={"variant"} tag={NavLink}
                                                    to={location.pathname === `/variants/${e.id}` ? "/variants" : `/variants/${e.id}`}>
-                                            {e.name}
+                                        {e.taskModule.name}: {e.name}
                                         <Link className={"pics"} to={`/variants/${e.id}/edit`}
                                               style={{right: "40px", position: "absolute", top: "calc(50% - 19px)"}}>
                                             &#9998;
@@ -151,7 +145,9 @@ class Variants extends Component<Props, State> {
     private deleteVariant(id: number) {
         return (e: SyntheticEvent<HTMLAnchorElement>) => {
             e.preventDefault();
-            this.props.deleteVariant(id);
+            if (confirm(`Вы уверены, что хотиту удалить вариант ${this.props.variants.data.filter(v => v.id === id)[0].name}?`)) {
+                this.props.deleteVariant(id, (new URLSearchParams(this.props.location.search)).get("moduleId") as any);
+            }
         }
     }
 
@@ -163,9 +159,7 @@ class Variants extends Component<Props, State> {
 
     private handleDropdownClick(id?: number) {
         return () => {
-            this.setState({
-                filter: id
-            })
+            this.props.history.push(this.props.location.pathname + (id ? "?moduleId=" + id : ""));
         }
     }
 }
@@ -173,7 +167,7 @@ class Variants extends Component<Props, State> {
 const mapStateToProps = (state: RootState) => ({
     variants: {
         ...state.variants,
-        data: state.variants.data.sort((e1, e2) => e1.id - e2.id)
+        data: state.variants.data.sort((e1, e2) => `${e1.taskModule.name}: ${e1.name}`.localeCompare(`${e2.taskModule.name}: ${e2.name}`))
     },
     modules: state.modules.data,
     state: state.state
