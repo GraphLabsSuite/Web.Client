@@ -7,9 +7,11 @@ import registerServiceWorker from './registerServiceWorker';
 import {init} from "./lib/connector";
 import {Promise} from 'bluebird';
 global.Promise = Promise;
+// @ts-ignore
+import hostconfigJson from "../hostconfig.json"
 
 init({
-    hostBase: 'http://gl-backend.svtz.ru:5000/'
+    hostBase: hostconfigJson.protocol + '://' + hostconfigJson.host + ':' + hostconfigJson.port + '/'
 });
 
 ReactDOM.render(
